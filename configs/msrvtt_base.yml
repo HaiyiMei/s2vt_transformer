@@ -1,0 +1,12 @@
+# base
+feats_dir: feats/MSRVTT/uniform_batch
+model: tsn
+transformer: False
+transformer_encoder: False
+
+warmup: 10
+learning_rate: 0.0001
+batch_size: 16
+epochs: 100
+eval_start: 70
+dim_hidden: 512
