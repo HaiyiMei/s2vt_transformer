@@ -3,20 +3,20 @@ import json
 import pandas as pd
 
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 import tqdm
 
 import opts
 from misc import utils
 from misc.cocoeval import suppress_stdout_stderr, COCOScorer
-from data.dataloader import VideoDataset
-# from models.s2vt import S2VT
-from models.s2vt_transformer import S2VT_Transformer
+from data.dataloader_finetune import VideoDataset
+from models.finetune_model import finetune_model
 
 
 def test(model, loader, vocab, scorer, mode='inference'):
     samples = {}
-    for data in loader:
+    for data in tqdm.tqdm(loader):
         # forward the model to get loss
         img_feats = data['img_feats'].cuda()
         video_ids = data['video_ids']
@@ -46,7 +46,7 @@ def test(model, loader, vocab, scorer, mode='inference'):
 
 def main(opt):
     testset = VideoDataset(opt, 'test')
-    testloader = DataLoader(testset, batch_size=opt["batch_size"]*16, shuffle=False)
+    testloader = DataLoader(testset, batch_size=opt["batch_size"], shuffle=False)
 
     gts = utils.convert_data_to_coco_scorer_format(
         json.load(open('data/annotations_{}.json'.format(opt["dataset"]))))
@@ -57,12 +57,13 @@ def main(opt):
     vocab = testset.get_vocab()
     mode = 'beam' if opt["beam"] else 'inference'
 
-    model = S2VT_Transformer(opt)
+    model = finetune_model(opt, evaluate=True)
     model = model.cuda()
+    model = nn.DataParallel(model)
     model.eval()
 
     checkpoint_path = os.path.join(
-        opt["save_path"], 'checkpoint')
+        opt["save_path"], 'checkpoint_finetune')
     if opt["checkpoint_epoch"] is not None:
         checkpoints = [os.path.join(checkpoint_path, 'model_{}.pth'.format(opt["checkpoint_epoch"]))]
     else:
@@ -97,6 +98,5 @@ if __name__ == '__main__':
     opt = opts.parse_opt()
     opt = vars(opt)
     # set up gpu
-    os.environ['CUDA_VISIBLE_DEVICES'] = opt["gpu"]
 
     main(opt)

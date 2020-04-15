@@ -61,7 +61,7 @@ class GCN_sim(nn.Module):
         '''
         input X: batch_size, N, d
         mask: batch_size, N
-        output X: batch_size, d
+        output X: batch_size, N, d
         '''
         # x = x + self.pos_encoding
 
@@ -73,20 +73,6 @@ class GCN_sim(nn.Module):
             x_gc.masked_fill_(mask.unsqueeze(-1).expand(x_gc.shape), 0)
 
         x = x + self.dropout(x_gc)
-        # x = x + self.dropout(self.gc1(x_norm, Gsim))
-
-        # x_norm = self.norm_2(x)
-        # Gsim = self.cul_Gsim(x_norm)
-        # x = x + self.dropout(self.gc2(x_norm, Gsim))
-
-        # x_norm = self.norm_3(x)
-        # Gsim = self.cul_Gsim(x_norm)
-        # x = x + self.dropout(self.gc3(x_norm, Gsim))
-
-        # X_2 = self.norm_2(x)
-        # X_2 = self.fc(X_2)
-        # x = x + self.dropout(X_2)
-            
         return x
 
     def cul_Gsim(self, X, mask=None):

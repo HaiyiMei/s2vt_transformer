@@ -1,0 +1,13 @@
+# base
+feats_dir: feats/MSVD/uniform_batch_avg
+model: tsn
+transformer: True
+transformer_encoder: True
+
+warmup: -1
+learning_rate: 0.00001
+batch_size: 64
+epochs: 100
+eval_start: 0
+dim_hidden: 512
+self_crit_after: 0

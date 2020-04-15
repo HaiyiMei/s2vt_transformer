@@ -1,3 +1,4 @@
 matplotlib
 pandas
 numpy==1.16.2
+pip install git+https://github.com/ildoonet/pytorch-gradual-warmup-lr.git

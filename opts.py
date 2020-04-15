@@ -12,14 +12,14 @@ def add_basic_options(parser):
         action='store_true',
         help='whether to save checkpoint')
     parser.add_argument(
-        '--checkpoint_path',
+        '--save_path',
         type=str,
         default='save',
         help='directory to store checkpointed models')
     parser.add_argument(
         '--checkpoint_epoch',
         type=int,
-        default=50,
+        default=None,
         help='directory to store checkpointed models')
     parser.add_argument(
         '--gpu', type=str, default='0', help='gpu device number')
@@ -60,24 +60,36 @@ def add_model_options(parser):
         '--bg',
         action='store_true',
         help='whether to use box gcn')
-    # parser.add_argument(
-    #     '--guide',
-    #     action='store_true',
-    #     help='whether to use guide gcn')
+    parser.add_argument(
+        '--all',
+        action='store_true',
+        help='whether to use three feature')
     parser.add_argument(
         '--fusion',
         type=str,
         help='which guide [channel, concat/add] mode to use')
     parser.add_argument(
+        '--sample_len',
+        type=int,
+        default=32)
+    parser.add_argument(
         '--n_layer',
         type=int,
         default=1,
         help='layer number for transformer layer')
+    # parser.add_argument(
+    #     '--n_layer_fusion',
+    #     type=int,
+    #     default=1,
+    #     help='layer number for transformer decoder')
     parser.add_argument(
-        '--n_layer_fusion',
-        type=int,
-        default=1,
-        help='layer number for transformer decoder')
+        '--res_box',
+        action='store_true',
+        help='whether to use resnet box')
+    parser.add_argument(
+        '--rpn',
+        action='store_true',
+        help='whether to use rpn box')
     return parser
 
 def add_training_options(parser):
@@ -102,6 +114,11 @@ def add_training_options(parser):
         type=int,
         default=2048,
         help='dim of features of video frames')
+    parser.add_argument(
+        '--dim_box',
+        type=int,
+        default=2048,
+        help='dim of features of box')
     parser.add_argument(
         '--epochs', type=int, default=1001, help='number of epochs')
     parser.add_argument(
@@ -141,26 +158,27 @@ def process_checkpoint(args):
 
     t = time.strftime("%H:%M:%S")
 
-    args.checkpoint_path = os.path.join(args.checkpoint_path, *args.feats_dir.split('/')[-2:])
-    # args.checkpoint_path = os.path.join(args.checkpoint_path, os.path.basename(args.feats_dir))
-    args.checkpoint_path = os.path.join(args.checkpoint_path, args.model)
+    args.save_path = os.path.join(args.save_path, *args.feats_dir.split('/')[-2:])
+    args.save_path = os.path.join(args.save_path, args.model)
     if args.transformer:
-        args.checkpoint_path = args.checkpoint_path + '_TRAN'
+        args.save_path = args.save_path + '_TRAN'
     if args.tg:
-        args.checkpoint_path = args.checkpoint_path + '_tg'
+        args.save_path = args.save_path + '_tg'
     if args.with_box:
-        args.checkpoint_path = args.checkpoint_path + '_box'
+        args.save_path = args.save_path + '_box'
     if args.only_box:
-        args.checkpoint_path = args.checkpoint_path + '_OnlyBox'
+        args.save_path = args.save_path + '_OnlyBox'
     if args.bg:
-        args.checkpoint_path = args.checkpoint_path + '(bg)'
+        args.save_path = args.save_path + '(bg)'
     if args.attention:
-        args.checkpoint_path = args.checkpoint_path + '_ATT'
+        args.save_path = args.save_path + '_ATT'
     if args.fusion:
-        args.checkpoint_path = args.checkpoint_path + '_fusion'
+        args.save_path = args.save_path + '_fusion'
         t = t + '_' + str(args.fusion)
+    if args.all:
+        args.save_path = args.save_path + '_all'
     
-    args.checkpoint_path = os.path.join(args.checkpoint_path, t)
+    args.save_path = os.path.join(args.save_path, t)
 
     return args
 
@@ -182,8 +200,10 @@ def parse_opt():
         args = parser.parse_args(namespace=args)
 
     args.dataset = 'MSRVTT' if 'MSRVTT' in args.feats_dir else 'MSVD'
-    if args.checkpoint_path=='save':
+    if args.save_path=='save':
         args = process_checkpoint(args)
+    if args.rpn:
+        args.dim_box = 1024
 
     return args
 

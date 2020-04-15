@@ -31,38 +31,38 @@ class Attention(nn.Module):
 
 class Fusion(nn.Module):
 
-    def __init__(self, d, h_d, mode='concat', n_layer=1):
+    def __init__(self, video_dim, box_dim, hidden_dim, mode='concat', n_layer=1):
         super(Fusion, self).__init__()
-        self.d = d
-        self.h_d = h_d
+        self.video_dim = video_dim
+        self.box_dim = box_dim
+        self.hidden_dim = hidden_dim
         self.mode = mode
 
         self.dropout = nn.Dropout(0.1)
 
         if 'concat' in self.mode:
-            dim = d
-            self.fc_cat = nn.Linear(dim*2, h_d)
+            self.att_dim = self.video_dim + self.box_dim
+            self.fc_cat = nn.Linear(self.att_dim, self.hidden_dim)
         if 'encoder' in self.mode:
-            self.img_embed = nn.Linear(self.d, self.h_d)
-            self.box_embed = nn.Linear(self.d, self.h_d)
-            dim = h_d
+            self.att_dim = self.hidden_dim
+            self.img_embed = nn.Linear(self.video_dim, self.hidden_dim)
+            self.box_embed = nn.Linear(self.box_dim, self.hidden_dim)
 
-            # self.fc_cat = nn.Linear(h_d*2, h_d)
-            encoder_layer = nn.TransformerEncoderLayer(d_model=dim, nhead=4)
+            encoder_layer = nn.TransformerEncoderLayer(d_model=self.att_dim, nhead=4)
             self.encoder_box = nn.TransformerEncoder(encoder_layer, n_layer)
             self.encoder_img = nn.TransformerEncoder(encoder_layer, n_layer)
 
         if 'decoder' in self.mode:
-            self.img_embed = nn.Linear(self.d, self.h_d)
-            self.box_embed = nn.Linear(self.d, self.h_d)
+            self.att_dim = self.hidden_dim
+            self.img_embed = nn.Linear(self.video_dim, self.hidden_dim)
+            self.box_embed = nn.Linear(self.box_dim, self.hidden_dim)
 
-            dim = h_d
 
-            decoder_layer = nn.TransformerDecoderLayer(d_model=dim, nhead=4)
+            decoder_layer = nn.TransformerDecoderLayer(d_model=self.att_dim, nhead=4)
             self.decoder = nn.TransformerDecoder(decoder_layer, n_layer)
         
         if 'att' in self.mode:
-            self.attention = Attention(dim, dim, self.h_d)
+            self.attention = Attention(self.att_dim, self.att_dim, self.hidden_dim)
 
     def fc_mask(self, fc, input, mask=None):
         input = fc(self.dropout(input))  # N, batch_size, d
@@ -77,6 +77,7 @@ class Fusion(nn.Module):
         region_feat: batch_size x N x d
         mask: batch_size x N
         '''
+        mask = region_feat.sum(-1).eq(0)  # batch_size x N
         frame_feat = frame_feat.transpose(0, 1)  # T x batch_size x d
         region_feat = region_feat.transpose(0, 1)  # N x batch_size x d
 
@@ -89,7 +90,7 @@ class Fusion(nn.Module):
                 frame_feat = self.encoder_img(frame_feat)
             if 'box' in self.mode:
                 region_feat = self.encoder_box(region_feat, src_key_padding_mask=mask)
-                region_feat = region_feat.masked_fill_(mask.transpose(0, 1).unsqueeze(-1).expand(-1, -1, self.h_d), 0.)
+                region_feat = region_feat.masked_fill_(mask.transpose(0, 1).unsqueeze(-1).expand(-1, -1, self.hidden_dim), 0.)
         if 'decoder' in self.mode:
             frame_feat = self.fc_mask(self.img_embed, frame_feat, mask=None)
             region_feat = self.fc_mask(self.box_embed, region_feat, mask=mask)
@@ -99,10 +100,11 @@ class Fusion(nn.Module):
             output = output.transpose(0, 1)
             return output
 
-        T, batch_size, d = frame_feat.shape
+        T, batch_size, _ = frame_feat.shape
+        dim = region_feat.size(-1)
 
 
-        region_feat = region_feat.reshape(T, -1, batch_size, d)
+        region_feat = region_feat.reshape(T, -1, batch_size, dim)
         mask = mask.transpose(0, 1).reshape(T, -1, batch_size)
 
         if 'att' in self.mode:

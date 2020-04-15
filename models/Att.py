@@ -6,26 +6,26 @@ import torch.nn.functional as F
 
 class Fusion(nn.Module):
 
-    def __init__(self, d, mode='attV1', n_layer=1):
+    def __init__(self, hidden_dim, mode='attV1', n_layer=1):
         super(Fusion, self).__init__()
-        self.d = d
+        self.hidden_dim = hidden_dim
         self.mode = mode
 
         if 'channel' in self.mode:
-            d_h = d//2 if 'V3' in self.mode else d
-            self.fc_reigion = nn.Linear(d, d_h)
-            self.fc_reigion2 = nn.Linear(d_h, d)
+            d_h = hidden_dim//2 if 'V3' in self.mode else hidden_dim
+            self.fc_reigion = nn.Linear(hidden_dim, d_h)
+            self.fc_reigion2 = nn.Linear(d_h, hidden_dim)
 
-            self.fc_frame = nn.Linear(d, d_h)
-            self.fc_frame2 = nn.Linear(d_h, d)
+            self.fc_frame = nn.Linear(hidden_dim, d_h)
+            self.fc_frame2 = nn.Linear(d_h, hidden_dim)
         
         if 'att' in self.mode:
-            self.multihead_attn = nn.MultiheadAttention(self.d, 4, dropout=0.1)
+            self.multihead_attn = nn.MultiheadAttention(self.hidden_dim, 4, dropout=0.1)
         if 'decoder' in self.mode:
-            decoder_layer = nn.TransformerDecoderLayer(d_model=self.d, nhead=4)
+            decoder_layer = nn.TransformerDecoderLayer(d_model=self.hidden_dim, nhead=4)
             self.decoder = nn.TransformerDecoder(decoder_layer, n_layer)
         if 'encoder' in self.mode:
-            encoder_layer = nn.TransformerEncoderLayer(d_model=self.d, nhead=4)
+            encoder_layer = nn.TransformerEncoderLayer(d_model=self.hidden_dim, nhead=4)
             self.encoder = nn.TransformerEncoder(encoder_layer, n_layer)
             self.encoder1 = nn.TransformerEncoder(encoder_layer, n_layer)
         
@@ -33,16 +33,16 @@ class Fusion(nn.Module):
         self.dropout = nn.Dropout(0.1)
 
         if 'attV2' == self.mode or 'attV3' == self.mode:
-            self.linear1 = nn.Linear(d, d)
-            self.linear2 = nn.Linear(d, d)
+            self.linear1 = nn.Linear(hidden_dim, hidden_dim)
+            self.linear2 = nn.Linear(hidden_dim, hidden_dim)
 
-            self.norm1 = nn.LayerNorm(d)
-            self.norm2 = nn.LayerNorm(d)
+            self.norm1 = nn.LayerNorm(hidden_dim)
+            self.norm2 = nn.LayerNorm(hidden_dim)
         
         if 'attV5' == self.mode:
-            self.multihead_attn2 = nn.MultiheadAttention(self.d, 4, dropout=0.1)
+            self.multihead_attn2 = nn.MultiheadAttention(self.hidden_dim, 4, dropout=0.1)
         if 'concat' in self.mode:
-            self.fc_cat = nn.Linear(d*2, d)
+            self.fc_cat = nn.Linear(hidden_dim*2, hidden_dim)
 
     def fc_mask(self, fc, input, mask=None):
         input = fc(self.dropout(input))  # batch_size, N, d
@@ -164,7 +164,7 @@ class Fusion(nn.Module):
                 region_weight = torch.relu(self.fc_mask(self.fc_reigion, region_feat_single, mask_single))
                 region_weight = torch.sigmoid(self.fc_mask(self.fc_reigion2, region_weight, mask_single))
                 tmp = torch.mul(region_feat_single, region_weight)
-                tmp = tmp.masked_fill_(mask_single.transpose(0, 1).unsqueeze(-1).expand(-1, -1, self.d), 0)
+                tmp = tmp.masked_fill_(mask_single.transpose(0, 1).unsqueeze(-1).expand(-1, -1, self.hidden_dim), 0)
                 tmp = tmp.sum(0) / (~mask_single).sum(-1).unsqueeze(-1).clamp(min=1)
 
                 region_feat_att.append(tmp.unsqueeze(0))
@@ -263,7 +263,7 @@ class Fusion(nn.Module):
                 mask_single = mask[:, i*box_num : (i+1) * box_num]  # batch_size, box_num
 
                 tmp = self.encoder(region_feat_single, src_key_padding_mask=mask_single)
-                tmp = tmp.masked_fill_(mask_single.transpose(0, 1).unsqueeze(-1).expand(-1, -1, self.d), 0)
+                tmp = tmp.masked_fill_(mask_single.transpose(0, 1).unsqueeze(-1).expand(-1, -1, self.hidden_dim), 0)
                 tmp = tmp.sum(0) / (~mask_single).sum(-1).unsqueeze(-1).clamp(min=1)
                 region_feat_att.append(tmp.unsqueeze(0))
             region_feat_att = torch.cat(region_feat_att, dim=0)  # T, batch_size, d
@@ -281,7 +281,7 @@ class Fusion(nn.Module):
         batch_size, T, d = frame_feat.shape
         box_num = region_feat.size(1) // T
         frame_feat = frame_feat.unsqueeze(2).expand(-1 ,-1 ,box_num, -1).reshape(batch_size, T*box_num, d)
-        frame_feat = frame_feat.masked_fill_(mask.unsqueeze(-1).expand(-1, -1, self.d), 0)
+        frame_feat = frame_feat.masked_fill_(mask.unsqueeze(-1).expand(-1, -1, self.hidden_dim), 0)
 
         frame_feat = frame_feat.transpose(0, 1)  # N x batch_size x d
         frame_feat_ori = frame_feat_ori.transpose(0, 1)  # T x batch_size x d
@@ -303,7 +303,7 @@ class Fusion(nn.Module):
         
         if 'concat' in self.mode:
             output = torch.cat([frame_feat, region_feat], dim=-1)
-            output = self.fc_mask(self.fc_cat, output, mask)
+            # output = self.fc_mask(self.fc_cat, output, mask)
         elif 'add' in self.mode:
             output = frame_feat + region_feat
         elif 'of' in self.mode:

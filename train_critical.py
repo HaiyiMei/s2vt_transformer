@@ -16,7 +16,6 @@ from torch.nn.utils import clip_grad_value_
 import torchnet as tnt
 
 from data.dataloader import VideoDataset
-from models.s2vt_lstm import S2VT_LSTM
 from models.s2vt_transformer import S2VT_Transformer
 import opts
 from misc import utils
@@ -24,7 +23,7 @@ from misc.cocoeval import suppress_stdout_stderr, COCOScorer
 from misc.rewards import get_self_critical_reward, init_cider_scorer
 
 
-def train(loader, model, optimizer, val=False, sc_flag=False, theta=1):
+def train(loader, model, optimizer, scorer, vocab, val=False, sc_flag=False, theta=1.):
     loss_sum = tnt.meter.AverageValueMeter()
     for data in loader:
         torch.cuda.synchronize()
@@ -37,32 +36,39 @@ def train(loader, model, optimizer, val=False, sc_flag=False, theta=1):
             box_feats = None
 
         optimizer.zero_grad()
-        seq_probs, _ = model(
-            input_image=img_feats, 
-            input_box=box_feats,  # batch_size*(box_num_per_frame*frame_num)*2048
-            input_caption=labels)
-        loss = crit(seq_probs, labels[:, 1:], masks[:, 1:])
-        if sc_flag:
+        if not sc_flag:
+            seq_probs, _ = model(
+                input_image=img_feats, 
+                input_box=box_feats,  # batch_size*(box_num_per_frame*frame_num)*2048
+                input_caption=labels, 
+                mode='sample')
+            loss = crit(seq_probs, labels[:, 1:], masks[:, 1:])
+        else:
             with torch.no_grad():
                 model.eval()
                 _, greedy_res = model(
                     input_image=img_feats, 
                     input_box=box_feats,
-                    mode='inference')
+                    mode='beam')
             model.train()
-            sample_n = 5
-            sample_probs, sample_res = [], []
-            for _ in range(sample_n):
-                sample_probs_, sample_res_ = model(
-                    input_image=img_feats, 
-                    input_box=box_feats,
-                    mode='sample')
-                sample_probs.append(sample_probs_)
-                sample_res.append(sample_res_)
+            # sample_n = 1
+            # sample_probs, sample_res = [], []
+            # for _ in range(sample_n):
+            sample_probs, sample_res = model(
+                input_image=img_feats, 
+                input_box=box_feats,
+                mode='sample')
+            #     sample_probs.append(sample_probs_)
+            #     sample_res.append(sample_res_)
             
-            sample_probs = torch.cat(sample_probs, dim=0)
-            sample_res = torch.cat(sample_res, dim=0)
-            reward = get_self_critical_reward(greedy_res, data, sample_res)
+            # sample_probs = torch.cat(sample_probs, dim=0)
+            # sample_res = torch.cat(sample_res, dim=0)
+
+            with suppress_stdout_stderr():
+                greedy_sents = utils.decode_sequence(vocab, greedy_res)
+                sample_sents = utils.decode_sequence(vocab, sample_res)
+
+                reward = get_self_critical_reward(greedy_sents, data, sample_sents, scorer)
             rl_loss = rl_crit(sample_probs, sample_res,
                               torch.from_numpy(reward).float().cuda())
             loss = rl_loss
@@ -127,17 +133,20 @@ def main(opt):
     gts = utils.convert_data_to_coco_scorer_format(
         json.load(open('data/annotations_{}.json'.format(opt["dataset"]))))
 
+    train_scorer = COCOScorer(gts, trainset.list_all, CIDEr=True)
     val_scorer = COCOScorer(gts, validset.list_all, CIDEr=True)
 
     opt["vocab_size"] = trainset.get_vocab_size()
     vocab = trainset.get_vocab()
 
-    if opt["transformer"]:
-        MODEL = S2VT_Transformer
-    else:
-        MODEL = S2VT_LSTM
+    MODEL = S2VT_Transformer
     model = MODEL(opt)
     model = model.cuda()
+
+    checkpoint = os.path.join(
+        opt["save_path"], 'checkpoint', 'model_{}.pth'.format(opt["checkpoint_epoch"]))
+    model.load_state_dict(state_dict=
+        torch.load(checkpoint))
 
     print(model)
 
@@ -166,7 +175,8 @@ def main(opt):
     # for not using self-critical
     sc_flag = False
     theta = 1.
-    mode = 'beam' if opt["beam"] else 'inference'
+    mode = 'beam' if opt["beam"] else 'sample'
+    # mode = 'sample'
     for epoch in range(opt["epochs"]):
         start_time = time.time()
         is_best = False
@@ -177,18 +187,18 @@ def main(opt):
             # set up for self-critical
             sc_flag = True
             init_cider_scorer(opt["dataset"])  # prepare for rl learning 
-            theta -= 0.03
-            theta = max(theta, 0)
+            # theta -= 0.03
+            # theta = max(theta, 0)
 
         model.train()
-        train_loss = train(trainloader, model, optimizer, sc_flag=sc_flag, theta=theta)
+        train_loss = train(trainloader, model, optimizer, train_scorer, vocab, sc_flag=sc_flag, theta=theta)
         # tensorboard writer
         writer.add_scalar('Learning rate', optimizer.param_groups[0]['lr'] , epoch)
         writer.add_scalar('Loss/train', train_loss, epoch)
 
         model.eval()
         with torch.no_grad():
-            valid_loss = train(validloader, model, optimizer, val=True, sc_flag=sc_flag, theta=theta)
+            valid_loss = train(validloader, model, optimizer, val_scorer, vocab, val=True, sc_flag=sc_flag, theta=theta)
             if sc_flag:
                 print_info = ["epoch: {}/{}".format(epoch+1, opt["epochs"]), 
                               "train_reward: {:.3f}".format(train_loss),
@@ -237,7 +247,7 @@ def main(opt):
     testset = VideoDataset(opt, 'test')
     testloader = DataLoader(testset, batch_size=opt["batch_size"]*16, shuffle=False)
     test_scorer = COCOScorer(gts, testset.list_all)
-    mode = 'beam'
+    # mode = 'beam'
     # select the top result
     top = metrics_steady.sort_values(by=['CIDEr'], ascending=False)[:top_metics]
     top = list(top['epoch'])
@@ -257,9 +267,9 @@ def main(opt):
         if opt["save_checkpoint"]:
             os.makedirs(
                 os.path.join(
-                    opt["save_path"], 'checkpoint'), 
+                    opt["save_path"], 'checkpoint_critical'), 
                 exist_ok=True)
-            model_save_path = os.path.join(opt["save_path"], 'checkpoint', 'model_%d.pth' % (epoch))
+            model_save_path = os.path.join(opt["save_path"], 'checkpoint_critical', 'model_%d.pth' % (epoch))
             shutil.copyfile(model_path, model_save_path)
 
     shutil.rmtree(os.path.join(opt["save_path"], 'checkpoint_tmp'))
@@ -268,7 +278,7 @@ if __name__ == '__main__':
     opt = opts.parse_opt()
     opt = vars(opt)
     print(json.dumps(opt, indent=1))
-    top_metics = 10
+    top_metics = 5
     steady_epoch = opt["self_crit_after"]  # 70
 
     # set up random seed
@@ -282,8 +292,8 @@ if __name__ == '__main__':
 
     # set up gpu
     os.environ['CUDA_VISIBLE_DEVICES'] = str(opt["gpu"])
-    sents_json = os.path.join(opt["save_path"], 'sents')
-    os.makedirs(sents_json)
+    sents_json = os.path.join(opt["save_path"], 'sents_critical')
+    os.makedirs(sents_json, exist_ok=True)
     opt_json = os.path.join(opt["save_path"], 'opt_info.json')
     os.makedirs(
         os.path.join(
@@ -293,12 +303,11 @@ if __name__ == '__main__':
         json.dump(opt, f)
 
     # log files
-    loss_log_file = os.path.join(opt["save_path"], 'loss.csv')
-    metrics_log_valid = os.path.join(opt["save_path"], 'metrics_valid.csv')
-    metrics_log_test = os.path.join(opt["save_path"], 'metrics_test.csv')
-    metrics_log_test_top = os.path.join(opt["save_path"], 'metrics_test_top.csv')
+    loss_log_file = os.path.join(opt["save_path"], 'loss_critical.csv')
+    metrics_log_valid = os.path.join(opt["save_path"], 'metrics_valid_critical.csv')
+    metrics_log_test = os.path.join(opt["save_path"], 'metrics_test_critical.csv')
     with open(loss_log_file, 'w') as log_fp:
-        log_fp.write('epoch,train_loss,valid_loss\n')
+        log_fp.write('epoch,train_reward,valid_reward\n')
     writer = utils.get_writer(opt)
 
     # loss criterion

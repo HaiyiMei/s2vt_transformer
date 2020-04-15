@@ -2,11 +2,15 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 import math
+import os
 from torch.utils.tensorboard import SummaryWriter
 
 
 def get_writer(opt):
-    writer = SummaryWriter(opt["checkpoint_path"])
+    tensorboard_path = os.path.join(opt["save_path"], 'tensorboard_log')
+    os.makedirs(tensorboard_path, exist_ok=True)
+    # writer = SummaryWriter(opt["save_path"])
+    writer = SummaryWriter(tensorboard_path)
     writer.add_text('warmup', str(opt["warmup"]))
     writer.add_text('with_box', str(opt["with_box"]))
     writer.add_text('only_box', str(opt["only_box"]))
@@ -111,6 +115,7 @@ class RewardCriterion(nn.Module):
 
     def forward(self, input, seq, reward):
         input = input.gather(2, seq.unsqueeze(2)).squeeze(2)  # probability for selected words
+        print(input.min())
         
         input = input.reshape(-1)  # batch_size, max_len
         reward = reward.reshape(-1)

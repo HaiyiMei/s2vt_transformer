@@ -50,12 +50,12 @@ class suppress_stdout_stderr:
 
 
 class COCOScorer(object):
-    def __init__(self, GT, IDs, valid=False):
+    def __init__(self, GT, IDs, CIDEr=False):
         # self.IDs = [ID[:-4] for ID in IDs]
         self.IDs = IDs
         self.tokenizer = PTBTokenizer()
         self.gts = self.init_gts(GT)
-        if valid:
+        if CIDEr:
             self.scorers = [(Cider(), "CIDEr")]
         else:
             self.scorers = [
@@ -72,6 +72,20 @@ class COCOScorer(object):
             gts[ID] = GT[ID]
         gts = self.tokenizer.tokenize(gts)
         return gts
+
+    def reward(self, RES):
+        self.eval = {}
+        self.imgToEval = {}
+        res = {}
+        gts = {}
+        for ID in RES.keys():
+            res[ID] = RES[ID]
+            gts[ID] = self.gts[ID]
+        res = self.tokenizer.tokenize(res)
+
+        scorer, method = self.scorers[-1]
+        score, scores = scorer.compute_score(gts, res)
+        return score, scores
 
     def score(self, RES):
         self.eval = {}
@@ -94,7 +108,7 @@ class COCOScorer(object):
                 self.setImgToEvalImgs(scores, self.IDs, method)
                 print("%s: %0.3f" % (method, score))
 
-        return self.eval
+        return self.eval 
 
     def setEval(self, score, method):
         self.eval[method] = score * 100

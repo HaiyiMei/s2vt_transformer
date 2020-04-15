@@ -15,9 +15,8 @@ from torch.utils.data import DataLoader
 from torch.nn.utils import clip_grad_value_
 import torchnet as tnt
 
-from data.dataloader import VideoDataset
-from models.s2vt_lstm import S2VT_LSTM
-from models.s2vt_transformer import S2VT_Transformer
+from data.dataloader_finetune import VideoDataset
+from models.finetune_model import finetune_model
 import opts
 from misc import utils
 from misc.cocoeval import suppress_stdout_stderr, COCOScorer
@@ -127,17 +126,14 @@ def main(opt):
     gts = utils.convert_data_to_coco_scorer_format(
         json.load(open('data/annotations_{}.json'.format(opt["dataset"]))))
 
-    val_scorer = COCOScorer(gts, validset.list_all, CIDEr=True)
+    val_scorer = COCOScorer(gts, validset.list_all, valid=True)
 
     opt["vocab_size"] = trainset.get_vocab_size()
     vocab = trainset.get_vocab()
 
-    if opt["transformer"]:
-        MODEL = S2VT_Transformer
-    else:
-        MODEL = S2VT_LSTM
-    model = MODEL(opt)
+    model = finetune_model(opt)
     model = model.cuda()
+    model = nn.DataParallel(model)
 
     print(model)
 
@@ -257,9 +253,9 @@ def main(opt):
         if opt["save_checkpoint"]:
             os.makedirs(
                 os.path.join(
-                    opt["save_path"], 'checkpoint'), 
+                    opt["save_path"], 'checkpoint_finetune'), 
                 exist_ok=True)
-            model_save_path = os.path.join(opt["save_path"], 'checkpoint', 'model_%d.pth' % (epoch))
+            model_save_path = os.path.join(opt["save_path"], 'checkpoint_finetune', 'model_%d.pth' % (epoch))
             shutil.copyfile(model_path, model_save_path)
 
     shutil.rmtree(os.path.join(opt["save_path"], 'checkpoint_tmp'))
@@ -268,7 +264,7 @@ if __name__ == '__main__':
     opt = opts.parse_opt()
     opt = vars(opt)
     print(json.dumps(opt, indent=1))
-    top_metics = 10
+    top_metics = 5
     steady_epoch = opt["self_crit_after"]  # 70
 
     # set up random seed
@@ -277,13 +273,12 @@ if __name__ == '__main__':
     torch.cuda.manual_seed(seed)
     np.random.seed(seed)  # Numpy module.
     random.seed(seed)  # Python random module.
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
+    # torch.backends.cudnn.deterministic = True
 
     # set up gpu
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(opt["gpu"])
-    sents_json = os.path.join(opt["save_path"], 'sents')
-    os.makedirs(sents_json)
+    sents_json = os.path.join(opt["save_path"], 'sents_finetune')
+    os.makedirs(sents_json, exist_ok=True)
     opt_json = os.path.join(opt["save_path"], 'opt_info.json')
     os.makedirs(
         os.path.join(
@@ -293,10 +288,9 @@ if __name__ == '__main__':
         json.dump(opt, f)
 
     # log files
-    loss_log_file = os.path.join(opt["save_path"], 'loss.csv')
-    metrics_log_valid = os.path.join(opt["save_path"], 'metrics_valid.csv')
-    metrics_log_test = os.path.join(opt["save_path"], 'metrics_test.csv')
-    metrics_log_test_top = os.path.join(opt["save_path"], 'metrics_test_top.csv')
+    loss_log_file = os.path.join(opt["save_path"], 'loss_finetune.csv')
+    metrics_log_valid = os.path.join(opt["save_path"], 'metrics_valid_finetune.csv')
+    metrics_log_test = os.path.join(opt["save_path"], 'metrics_test_finetune.csv')
     with open(loss_log_file, 'w') as log_fp:
         log_fp.write('epoch,train_loss,valid_loss\n')
     writer = utils.get_writer(opt)

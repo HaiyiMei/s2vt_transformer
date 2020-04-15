@@ -1,8 +1,5 @@
 import torch.nn as nn 
-from models.Encoder_Transformer import Encoder_Transformer
 from models.Decoder_Transformer import Decoder_Transformer
-# from models.Encoder_tmp import Encoder_Transformer
-# from models.Decoder_tmp import Decoder_Transformer
 
 class S2VT_Transformer(nn.Module):
     def __init__(self, opt):
@@ -11,6 +8,10 @@ class S2VT_Transformer(nn.Module):
         self.hidden_dim = opt["dim_hidden"]
         self.video_dim = opt["dim_vid"]
 
+        if opt["fusion"]:
+            from models.Encoder_channel import Encoder_Transformer
+        else:
+            from models.Encoder_Transformer import Encoder_Transformer
         self.encoder = Encoder_Transformer(opt)
         self.decoder = Decoder_Transformer(opt)
 
@@ -27,8 +28,5 @@ class S2VT_Transformer(nn.Module):
 
         input_feature, mask = self.encoder(input_image, input_box)
         seq_probs, seq_preds = self.decoder(input_feature, mask, input_caption, mode)
-
-        # input_image, input_box = self.encoder(input_image, input_box)
-        # seq_probs, seq_preds = self.decoder(input_image, input_box, input_caption, mode)
 
         return seq_probs, seq_preds
