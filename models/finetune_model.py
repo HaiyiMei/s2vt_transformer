@@ -4,7 +4,7 @@ import time
 import os
 import torch.nn as nn
 import torchvision
-from models.s2vt_transformer import S2VT_Transformer
+from models.s2vt import S2VT
 
 
 class finetune_model(nn.Module):
@@ -17,7 +17,7 @@ class finetune_model(nn.Module):
             self.img_encoder = self.build_tsn_dense()
         elif opt["model"] == 'resnet':
             self.img_encoder = self.build_resnet()
-        self.transformer = S2VT_Transformer(opt)
+        self.transformer = S2VT(opt)
         self.avg_pool2d = torch.nn.AdaptiveAvgPool2d((1, 1))
 
         if not self.eval:
@@ -25,6 +25,21 @@ class finetune_model(nn.Module):
                 opt["save_path"], 'checkpoint', 'model_{}.pth'.format(opt["checkpoint_epoch"]))
             self.transformer.load_state_dict(state_dict=
                 torch.load(checkpoint))
+
+    def forward(self, input_image, input_caption=None, input_box=None, mode='train'):
+        batch_size = input_image.size(0)
+        input_image = input_image.reshape(batch_size*self.sample_len, 3, 256, 256)
+        input_image = self.img_encoder(input_image)
+        input_image = self.avg_pool2d(input_image).squeeze(-1).squeeze(-1)
+        input_image = input_image.reshape(batch_size, self.sample_len, -1)
+
+        seq_probs, seq_preds = self.transformer(
+            input_image=input_image, 
+            input_box=input_box,  # batch_size*(box_num_per_frame*frame_num)*2048
+            input_caption=input_caption,
+            mode=mode)
+        
+        return seq_probs, seq_preds
 
     def build_resnet(self):
         resnet_ori = torchvision.models.resnet101(pretrained=True).cuda()
@@ -64,18 +79,3 @@ class finetune_model(nn.Module):
 
         net.load_state_dict(net_dict)
         return net
-
-    def forward(self, input_image, input_caption=None, input_box=None, mode='train'):
-        batch_size = input_image.size(0)
-        input_image = input_image.reshape(batch_size*self.sample_len, 3, 256, 256)
-        input_image = self.img_encoder(input_image)
-        input_image = self.avg_pool2d(input_image).squeeze(-1).squeeze(-1)
-        input_image = input_image.reshape(batch_size, self.sample_len, -1)
-
-        seq_probs, seq_preds = self.transformer(
-            input_image=input_image, 
-            input_box=input_box,  # batch_size*(box_num_per_frame*frame_num)*2048
-            input_caption=input_caption,
-            mode=mode)
-        
-        return seq_probs, seq_preds

@@ -1,8 +1,9 @@
 # base
-feats_dir: feats/MSRVTT/uniform_batch
+feats_dir: feats/MSRVTT/uniform_batch_0.1
 model: tsn
-transformer: False
-transformer_encoder: False
+decoder: transformer
+transformer_encoder: True
+res_box: True
 
 warmup: 10
 learning_rate: 0.0001

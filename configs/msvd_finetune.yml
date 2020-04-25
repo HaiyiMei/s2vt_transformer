@@ -1,0 +1,8 @@
+_BASE_: msvd_base.yml
+# base
+
+warmup: -1
+learning_rate: 0.00001
+batch_size: 2
+epochs: 20
+eval_start: 5

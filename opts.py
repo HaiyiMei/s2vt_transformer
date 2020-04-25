@@ -33,37 +33,22 @@ def add_model_options(parser):
     parser.add_argument(
         "--model", type=str, default='tsn', help="which model to use")
     parser.add_argument(
-        '--transformer',
-        action='store_true',
-        help='whether to use transformer as decoder')
+        '--decoder',
+        type=str,
+        default='transformer',
+        help='whether to use transformer/lstm as decoder')
     parser.add_argument(
         '--transformer_encoder',
         action='store_true',
         help='whether to use transformer as encoder')
     parser.add_argument(
-        '--attention',
-        action='store_true',
-        help='whether to use attnetion in decoder')
-    parser.add_argument(
-        '--with_box',
-        action='store_true',
-        help='whether to use box features')
-    parser.add_argument(
         '--only_box',
         action='store_true',
         help='whether to use box features')
     parser.add_argument(
-        '--tg',
+        '--channel',
         action='store_true',
-        help='whether to use time gcn')
-    parser.add_argument(
-        '--bg',
-        action='store_true',
-        help='whether to use box gcn')
-    parser.add_argument(
-        '--all',
-        action='store_true',
-        help='whether to use three feature')
+        help='whether to use channel-wise attention')
     parser.add_argument(
         '--fusion',
         type=str,
@@ -77,11 +62,6 @@ def add_model_options(parser):
         type=int,
         default=1,
         help='layer number for transformer layer')
-    # parser.add_argument(
-    #     '--n_layer_fusion',
-    #     type=int,
-    #     default=1,
-    #     help='layer number for transformer decoder')
     parser.add_argument(
         '--res_box',
         action='store_true',
@@ -160,23 +140,14 @@ def process_checkpoint(args):
 
     args.save_path = os.path.join(args.save_path, *args.feats_dir.split('/')[-2:])
     args.save_path = os.path.join(args.save_path, args.model)
-    if args.transformer:
-        args.save_path = args.save_path + '_TRAN'
-    if args.tg:
-        args.save_path = args.save_path + '_tg'
-    if args.with_box:
-        args.save_path = args.save_path + '_box'
+    if args.decoder == 'lstm':
+        args.save_path = args.save_path + '_lstm'
     if args.only_box:
-        args.save_path = args.save_path + '_OnlyBox'
-    if args.bg:
-        args.save_path = args.save_path + '(bg)'
-    if args.attention:
-        args.save_path = args.save_path + '_ATT'
+        args.save_path = args.save_path + '_onlyBox'
     if args.fusion:
-        args.save_path = args.save_path + '_fusion'
-        t = t + '_' + str(args.fusion)
-    if args.all:
-        args.save_path = args.save_path + '_all'
+        args.save_path = args.save_path + '_' + str(args.fusion)
+    if args.channel:
+        t = t + '_channel'
     
     args.save_path = os.path.join(args.save_path, t)
 

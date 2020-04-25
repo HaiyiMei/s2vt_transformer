@@ -3,80 +3,47 @@ import json
 import time
 import tqdm
 import random
-import heapq
 import shutil
 
+import torch
 import numpy as np
 import pandas as pd
-import torch
 from torch import nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.nn.utils import clip_grad_value_
 import torchnet as tnt
 
-from data.dataloader import VideoDataset
-from models.s2vt_lstm import S2VT_LSTM
-from models.s2vt_transformer import S2VT_Transformer
 import opts
 from misc import utils
+from models.s2vt import S2VT
+from data.dataloader import VideoDataset
 from misc.cocoeval import suppress_stdout_stderr, COCOScorer
-from misc.rewards import get_self_critical_reward, init_cider_scorer
 
 
-def train(loader, model, optimizer, val=False, sc_flag=False, theta=1):
+def train(loader, model, optimizer, val=False):
     loss_sum = tnt.meter.AverageValueMeter()
     for data in loader:
         torch.cuda.synchronize()
         img_feats = data['img_feats'].cuda()
+        box_feats = data['box_feats'].cuda() if opt["fusion"] else None
         labels = data['labels'].cuda()
         masks = data['masks'].cuda()
-        if opt["with_box"] or opt["fusion"]:
-            box_feats = data['box_feats'].cuda()
-        else: 
-            box_feats = None
 
         optimizer.zero_grad()
         seq_probs, _ = model(
-            input_image=img_feats, 
-            input_box=box_feats,  # batch_size*(box_num_per_frame*frame_num)*2048
-            input_caption=labels)
+            frame_feat=img_feats, 
+            region_feat=box_feats,  # batch_size*(box_num_per_frame*frame_num)*2048
+            input_caption=labels, 
+            mode='train')
         loss = crit(seq_probs, labels[:, 1:], masks[:, 1:])
-        if sc_flag:
-            with torch.no_grad():
-                model.eval()
-                _, greedy_res = model(
-                    input_image=img_feats, 
-                    input_box=box_feats,
-                    mode='inference')
-            model.train()
-            sample_n = 5
-            sample_probs, sample_res = [], []
-            for _ in range(sample_n):
-                sample_probs_, sample_res_ = model(
-                    input_image=img_feats, 
-                    input_box=box_feats,
-                    mode='sample')
-                sample_probs.append(sample_probs_)
-                sample_res.append(sample_res_)
-            
-            sample_probs = torch.cat(sample_probs, dim=0)
-            sample_res = torch.cat(sample_res, dim=0)
-            reward = get_self_critical_reward(greedy_res, data, sample_res)
-            rl_loss = rl_crit(sample_probs, sample_res,
-                              torch.from_numpy(reward).float().cuda())
-            loss = rl_loss
-            # loss = theta*loss + (1-theta)*rl_loss
 
         if not val:
             loss.backward()
             clip_grad_value_(model.parameters(), opt['grad_clip'])
             optimizer.step()
 
-        if sc_flag:
-            loss_sum.add(np.mean(reward[:, 0]))
-        else:
-            loss_sum.add(loss.item())
+        loss_sum.add(loss.item())
         torch.cuda.synchronize()
     return loss_sum.value()[0]  # loss mean
 
@@ -86,17 +53,14 @@ def test(model, loader, vocab, scorer, mode='inference'):
     for data in loader:
         # forward the model to get loss
         img_feats = data['img_feats'].cuda()
+        box_feats = data['box_feats'].cuda() if opt["fusion"] else None
         video_ids = data['video_ids']
-        if opt["with_box"] or opt["fusion"]:
-            box_feats = data['box_feats'].cuda()
-        else: 
-            box_feats = None
       
         # forward the model to also get generated samples for each image
         with torch.no_grad():
             _, seq_preds = model(
-                input_image=img_feats, 
-                input_box=box_feats, 
+                frame_feat=img_feats, 
+                region_feat=box_feats,  # batch_size*(box_num_per_frame*frame_num)*2048
                 mode=mode)
 
         sents = utils.decode_sequence(vocab, seq_preds)
@@ -106,13 +70,7 @@ def test(model, loader, vocab, scorer, mode='inference'):
             samples[video_id] = [{'image_id': video_id, 'caption': sent}]
 
     with suppress_stdout_stderr():
-        try:
-            valid_score = scorer.score(samples)
-        except:
-            method = ["Bleu_1", "Bleu_2",
-                      "Bleu_3", "Bleu_4", 
-                      "METEOR", "ROUGE_L", "CIDEr"]
-            return dict(zip(method, [0.]*len(method)))
+        valid_score = scorer.score(samples)
             
     return valid_score, samples
 
@@ -132,11 +90,7 @@ def main(opt):
     opt["vocab_size"] = trainset.get_vocab_size()
     vocab = trainset.get_vocab()
 
-    if opt["transformer"]:
-        MODEL = S2VT_Transformer
-    else:
-        MODEL = S2VT_LSTM
-    model = MODEL(opt)
+    model = S2VT(opt)
     model = model.cuda()
 
     print(model)
@@ -163,9 +117,6 @@ def main(opt):
           "start training", 
           "---------------------------", sep="\n")
 
-    # for not using self-critical
-    sc_flag = False
-    theta = 1.
     mode = 'beam' if opt["beam"] else 'inference'
     for epoch in range(opt["epochs"]):
         start_time = time.time()
@@ -173,37 +124,25 @@ def main(opt):
         
         if opt["warmup"] != -1:
             scheduler_warmup.step()
-        if opt["self_crit_after"] != -1 and epoch >= opt["self_crit_after"]:
-            # set up for self-critical
-            sc_flag = True
-            init_cider_scorer(opt["dataset"])  # prepare for rl learning 
-            theta -= 0.03
-            theta = max(theta, 0)
 
         model.train()
-        train_loss = train(trainloader, model, optimizer, sc_flag=sc_flag, theta=theta)
+        train_loss = train(trainloader, model, optimizer)
         # tensorboard writer
         writer.add_scalar('Learning rate', optimizer.param_groups[0]['lr'] , epoch)
         writer.add_scalar('Loss/train', train_loss, epoch)
 
         model.eval()
         with torch.no_grad():
-            valid_loss = train(validloader, model, optimizer, val=True, sc_flag=sc_flag, theta=theta)
-            if sc_flag:
-                print_info = ["epoch: {}/{}".format(epoch+1, opt["epochs"]), 
-                              "train_reward: {:.3f}".format(train_loss),
-                              "val_reward: {:.3f}".format(valid_loss)]
-            else:
-                print_info = ["epoch: {}/{}".format(epoch+1, opt["epochs"]), 
-                              "train_loss: {:.3f}".format(train_loss),
-                              "val_loss: {:.3f}".format(valid_loss)]
+            valid_loss = train(validloader, model, optimizer, val=True)
+            print_info = ["epoch: {}/{}".format(epoch+1, opt["epochs"]), 
+                          "train_loss: {:.3f}".format(train_loss),
+                          "val_loss: {:.3f}".format(valid_loss)]
             writer.add_scalar('Loss/valid', valid_loss, epoch)
             
             if epoch+1 >= opt["eval_start"]:
                 val_score, val_sents = test(model, validloader, vocab, val_scorer, mode=mode)
                 print_info.append("val_CIDEr: {:.1f}".format(val_score["CIDEr"]))
                 writer.add_scalar('CIDEr/valid', val_score["CIDEr"], epoch)
-                # write_log(metrics_log_valid, epoch, val_score)
 
                 val_score.update({'epoch': epoch})
                 metrics_valid = metrics_valid.append(val_score, ignore_index=True)
@@ -235,7 +174,7 @@ def main(opt):
             print('tensorboard --logdir={}'.format(os.path.join(os.getcwd(), writer.log_dir)))
 
     testset = VideoDataset(opt, 'test')
-    testloader = DataLoader(testset, batch_size=opt["batch_size"]*16, shuffle=False)
+    testloader = DataLoader(testset, batch_size=opt["batch_size"], shuffle=False)
     test_scorer = COCOScorer(gts, testset.list_all)
     mode = 'beam'
     # select the top result
@@ -243,7 +182,7 @@ def main(opt):
     top = list(top['epoch'])
 
     model.eval()
-    for epoch in tqdm.tqdm(top):
+    for epoch in tqdm.tqdm(top, desc='epochs', leave=True):
         model_path = os.path.join(opt["save_path"], 'checkpoint_tmp', 'model_%d.pth' % (epoch))
         model.load_state_dict(torch.load(model_path))
         test_score, test_sents = test(model, testloader, vocab, test_scorer, mode=mode)
@@ -269,7 +208,7 @@ if __name__ == '__main__':
     opt = vars(opt)
     print(json.dumps(opt, indent=1))
     top_metics = 10
-    steady_epoch = opt["self_crit_after"]  # 70
+    steady_epoch = opt["self_crit_after"] 
 
     # set up random seed
     seed = opt['seed']
@@ -296,7 +235,6 @@ if __name__ == '__main__':
     loss_log_file = os.path.join(opt["save_path"], 'loss.csv')
     metrics_log_valid = os.path.join(opt["save_path"], 'metrics_valid.csv')
     metrics_log_test = os.path.join(opt["save_path"], 'metrics_test.csv')
-    metrics_log_test_top = os.path.join(opt["save_path"], 'metrics_test_top.csv')
     with open(loss_log_file, 'w') as log_fp:
         log_fp.write('epoch,train_loss,valid_loss\n')
     writer = utils.get_writer(opt)

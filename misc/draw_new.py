@@ -117,23 +117,18 @@ transform = transforms.Compose([
                 ])
 
 dataset = 'MSRVTT'
-idx_v = 100
-threshold = 0.1
+# dataset = 'MSVD'
 
 frames_path = './feats/{}/frames/'.format(dataset)
-# bbox_path = './feats/{}/bbox_32_2020_nms_0.5'.format(dataset)
-bbox_path = './feats/{}/bbox_conf_0.4_nms_0.3'.format(dataset)
-feature_path = './feats/{}/uniform_batch/tsn_box'.format(dataset)
-# bbox_path = './feats/{}/bbox_crop_256'.format(dataset)
-# bbox_path = '../feats/{}/bbox_32_2020_nms_0.5'.format(dataset)
+bbox_path = './feats/{}/bbox_conf_0.1_nms_0.5'.format(dataset)
+feature_path = './feats/{}/uniform_batch_0.1/resnet_box'.format(dataset)
 
 
-videos = os.listdir(bbox_path)
-videos.sort()
+# videos = os.listdir(bbox_path)
+# videos.sort()
 
-video = videos[idx_v]
-video = video[:-4]
-video = 'video7016'
+video = 'video7184'
+# video = 'QMJY29QMewQ_42_52'
 box = 0
 
 

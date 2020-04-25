@@ -1,12 +1,13 @@
 # base
-feats_dir: feats/MSVD/uniform_batch
+feats_dir: feats/MSVD/uniform_batch_0.1
 model: tsn
-transformer: False
-transformer_encoder: False
+decoder: transformer
+transformer_encoder: True
+res_box: True
 
 warmup: 50
 learning_rate: 0.0001
 batch_size: 16
 epochs: 300
-eval_start: 50
+eval_start: 200
 dim_hidden: 512

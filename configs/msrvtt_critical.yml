@@ -1,0 +1,9 @@
+_BASE_: msrvtt_base.yml
+# base
+
+warmup: -1
+learning_rate: 0.00001
+batch_size: 64
+epochs: 30
+eval_start: 0
+self_crit_after: 5

@@ -23,6 +23,7 @@ class VideoDataset(Dataset):
         self.mode = mode  # to load train/val/test data
         self.feats_dir = opt["feats_dir"]
         self.dataset = opt["dataset"]
+        self.captions_maxnum = 81 if self.dataset == 'MSVD' else 20
 
         self.img = os.path.join(self.feats_dir, '{}_img'.format(opt["model"]))
         self.box = os.path.join(self.feats_dir, '{}_box'.format(opt["model"]))
@@ -30,8 +31,6 @@ class VideoDataset(Dataset):
             self.box = os.path.join(self.feats_dir, 'rpn_box')
         if opt["res_box"]:
             self.box = os.path.join(self.feats_dir, 'resnet_box')
-        # self.img = os.path.join(self.feats_dir, 'tsn_img')
-        # self.box = os.path.join(self.feats_dir, 'rpn_box')
 
         # load the json file which contains information about the dataset
         self.captions = json.load(open('data/caption_{}.json'.format(self.dataset)))
@@ -40,7 +39,7 @@ class VideoDataset(Dataset):
         self.word_to_ix = info['word_to_ix']
         self.splits = info['videos']
 
-        self.with_box = opt['with_box'] or opt['fusion']
+        self.with_box = opt['fusion']
         if opt["only_box"]:
             self.feats_dir = [self.box]
         elif self.with_box:
@@ -81,16 +80,14 @@ class VideoDataset(Dataset):
 
         if self.dataset == 'MSVD':
             gts_ix = random.sample(range(len(captions)), 5)
-            gts = gts[gts_ix]
+            gts_ = np.zeros((self.captions_maxnum, self.max_len))
+            gts_[:len(gts)] = gts
+            gts = gts_
 
         data = {}
         data['img_feats'] = fc_feat[0].type(torch.FloatTensor)
         if self.with_box:
             data['box_feats'] = fc_feat[1].type(torch.FloatTensor)
-
-            # feat = torch.zeros(320, 2048)
-            # feat[:len(fc_feat[1])] = fc_feat[1]
-            # data['box_feats'] = feat
         data['labels'] = torch.from_numpy(label).type(torch.LongTensor)
         data['masks'] = torch.from_numpy(mask).type(torch.FloatTensor)
         data['gts'] = torch.from_numpy(gts).long()

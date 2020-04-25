@@ -9,16 +9,11 @@ from torch.utils.tensorboard import SummaryWriter
 def get_writer(opt):
     tensorboard_path = os.path.join(opt["save_path"], 'tensorboard_log')
     os.makedirs(tensorboard_path, exist_ok=True)
-    # writer = SummaryWriter(opt["save_path"])
     writer = SummaryWriter(tensorboard_path)
     writer.add_text('warmup', str(opt["warmup"]))
-    writer.add_text('with_box', str(opt["with_box"]))
     writer.add_text('only_box', str(opt["only_box"]))
-    writer.add_text('attention', str(opt["attention"]))
-    writer.add_text('frame gcn', str(opt["tg"]))
-    writer.add_text('region gcn', str(opt["bg"]))
     writer.add_text('transformer encoder', str(opt["transformer_encoder"]))
-    writer.add_text('transformer decoder', str(opt["transformer"]))
+    writer.add_text('decoder', str(opt["decoder"]))
     writer.add_text('encoder/decoder layer number', str(opt["n_layer"]))
     writer.add_text('fusion', str(opt["fusion"]))
     
@@ -115,7 +110,6 @@ class RewardCriterion(nn.Module):
 
     def forward(self, input, seq, reward):
         input = input.gather(2, seq.unsqueeze(2)).squeeze(2)  # probability for selected words
-        print(input.min())
         
         input = input.reshape(-1)  # batch_size, max_len
         reward = reward.reshape(-1)

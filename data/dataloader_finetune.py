@@ -43,7 +43,7 @@ class VideoDataset(Dataset):
         self.word_to_ix = info['word_to_ix']
         self.splits = info['videos']
 
-        self.with_box = opt['with_box'] or opt['fusion']
+        self.with_box = opt['fusion']
 
         list_dir = os.listdir(self.box)
         list_dir = [i[:-4] for i in list_dir]

@@ -1,5 +1,0 @@
-_BASE_: msrvtt_base.yml
-# base
-# feats_dir: /train/feats/MSRVTT/uniform_batch
-gpu: 1
-

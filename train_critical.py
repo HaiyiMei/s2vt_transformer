@@ -3,22 +3,21 @@ import json
 import time
 import tqdm
 import random
-import heapq
 import shutil
 
+import torch
 import numpy as np
 import pandas as pd
-import torch
 from torch import nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.nn.utils import clip_grad_value_
 import torchnet as tnt
 
-from data.dataloader import VideoDataset
-from models.s2vt_transformer import S2VT_Transformer
 import opts
 from misc import utils
+from models.s2vt import S2VT
+from data.dataloader import VideoDataset
 from misc.cocoeval import suppress_stdout_stderr, COCOScorer
 from misc.rewards import get_self_critical_reward, init_cider_scorer
 
@@ -28,51 +27,50 @@ def train(loader, model, optimizer, scorer, vocab, val=False, sc_flag=False, the
     for data in loader:
         torch.cuda.synchronize()
         img_feats = data['img_feats'].cuda()
+        box_feats = data['box_feats'].cuda() if opt["fusion"] else None
         labels = data['labels'].cuda()
         masks = data['masks'].cuda()
-        if opt["with_box"] or opt["fusion"]:
-            box_feats = data['box_feats'].cuda()
-        else: 
-            box_feats = None
 
         optimizer.zero_grad()
-        if not sc_flag:
-            seq_probs, _ = model(
-                input_image=img_feats, 
-                input_box=box_feats,  # batch_size*(box_num_per_frame*frame_num)*2048
-                input_caption=labels, 
-                mode='sample')
-            loss = crit(seq_probs, labels[:, 1:], masks[:, 1:])
-        else:
+        # if not sc_flag:
+        seq_probs, _ = model(
+            frame_feat=img_feats, 
+            region_feat=box_feats,  # batch_size*(box_num_per_frame*frame_num)*2048
+            input_caption=labels, 
+            mode='train')
+        loss = crit(seq_probs, labels[:, 1:], masks[:, 1:])
+        if sc_flag:
             with torch.no_grad():
                 model.eval()
                 _, greedy_res = model(
-                    input_image=img_feats, 
-                    input_box=box_feats,
-                    mode='beam')
+                    frame_feat=img_feats, 
+                    region_feat=box_feats,  # batch_size*(box_num_per_frame*frame_num)*2048
+                    mode='inference')
             model.train()
-            # sample_n = 1
-            # sample_probs, sample_res = [], []
-            # for _ in range(sample_n):
             sample_probs, sample_res = model(
-                input_image=img_feats, 
-                input_box=box_feats,
+                frame_feat=img_feats, 
+                region_feat=box_feats,  # batch_size*(box_num_per_frame*frame_num)*2048
                 mode='sample')
-            #     sample_probs.append(sample_probs_)
-            #     sample_res.append(sample_res_)
+
+            # with suppress_stdout_stderr():
+            # greedy_sents = utils.decode_sequence(vocab, greedy_res)
+            # sample_sents = utils.decode_sequence(vocab, sample_res)
+
+            reward = get_self_critical_reward(greedy_res, data, sample_res)
+            # reward = get_self_critical_reward(greedy_sents, data, sample_sents, scorer)
+            reward = torch.from_numpy(reward).float().cuda()
+            reward = reward.unsqueeze(-1)
+            mask = torch.zeros(sample_probs.size()).cuda().scatter_(2, sample_res.unsqueeze(2).data, 1.0)
+
+            rl_loss = -sample_probs * mask * reward
+            rl_loss = rl_loss.sum() / (sample_res>0).sum()
+
+            # rl_loss = rl_crit(sample_probs, sample_res,
+            #                   torch.from_numpy(reward).float().cuda())
+            # loss = rl_loss
             
-            # sample_probs = torch.cat(sample_probs, dim=0)
-            # sample_res = torch.cat(sample_res, dim=0)
-
-            with suppress_stdout_stderr():
-                greedy_sents = utils.decode_sequence(vocab, greedy_res)
-                sample_sents = utils.decode_sequence(vocab, sample_res)
-
-                reward = get_self_critical_reward(greedy_sents, data, sample_sents, scorer)
-            rl_loss = rl_crit(sample_probs, sample_res,
-                              torch.from_numpy(reward).float().cuda())
-            loss = rl_loss
-            # loss = theta*loss + (1-theta)*rl_loss
+            theta = 0.0019
+            loss = theta*loss + (1-theta)*rl_loss
 
         if not val:
             loss.backward()
@@ -80,7 +78,8 @@ def train(loader, model, optimizer, scorer, vocab, val=False, sc_flag=False, the
             optimizer.step()
 
         if sc_flag:
-            loss_sum.add(np.mean(reward[:, 0]))
+            loss_sum.add(reward.mean().item())
+            # loss_sum.add(np.mean(reward[:, 0]))
         else:
             loss_sum.add(loss.item())
         torch.cuda.synchronize()
@@ -92,17 +91,14 @@ def test(model, loader, vocab, scorer, mode='inference'):
     for data in loader:
         # forward the model to get loss
         img_feats = data['img_feats'].cuda()
+        box_feats = data['box_feats'].cuda() if opt["fusion"] else None
         video_ids = data['video_ids']
-        if opt["with_box"] or opt["fusion"]:
-            box_feats = data['box_feats'].cuda()
-        else: 
-            box_feats = None
       
         # forward the model to also get generated samples for each image
         with torch.no_grad():
             _, seq_preds = model(
-                input_image=img_feats, 
-                input_box=box_feats, 
+                frame_feat=img_feats, 
+                region_feat=box_feats,  # batch_size*(box_num_per_frame*frame_num)*2048
                 mode=mode)
 
         sents = utils.decode_sequence(vocab, seq_preds)
@@ -139,8 +135,7 @@ def main(opt):
     opt["vocab_size"] = trainset.get_vocab_size()
     vocab = trainset.get_vocab()
 
-    MODEL = S2VT_Transformer
-    model = MODEL(opt)
+    model = S2VT(opt)
     model = model.cuda()
 
     checkpoint = os.path.join(
@@ -187,8 +182,8 @@ def main(opt):
             # set up for self-critical
             sc_flag = True
             init_cider_scorer(opt["dataset"])  # prepare for rl learning 
-            # theta -= 0.03
-            # theta = max(theta, 0)
+            theta -= 0.2
+            theta = max(theta, 0.)
 
         model.train()
         train_loss = train(trainloader, model, optimizer, train_scorer, vocab, sc_flag=sc_flag, theta=theta)
@@ -245,7 +240,7 @@ def main(opt):
             print('tensorboard --logdir={}'.format(os.path.join(os.getcwd(), writer.log_dir)))
 
     testset = VideoDataset(opt, 'test')
-    testloader = DataLoader(testset, batch_size=opt["batch_size"]*16, shuffle=False)
+    testloader = DataLoader(testset, batch_size=opt["batch_size"], shuffle=False)
     test_scorer = COCOScorer(gts, testset.list_all)
     # mode = 'beam'
     # select the top result
@@ -264,13 +259,12 @@ def main(opt):
 
         with open(sents_json + '/test_%d.json'%(epoch), 'w') as f:
             json.dump(test_sents, f)
-        if opt["save_checkpoint"]:
-            os.makedirs(
-                os.path.join(
-                    opt["save_path"], 'checkpoint_critical'), 
-                exist_ok=True)
-            model_save_path = os.path.join(opt["save_path"], 'checkpoint_critical', 'model_%d.pth' % (epoch))
-            shutil.copyfile(model_path, model_save_path)
+        os.makedirs(
+            os.path.join(
+                opt["save_path"], 'checkpoint_critical'), 
+            exist_ok=True)
+        model_save_path = os.path.join(opt["save_path"], 'checkpoint_critical', 'model_%d.pth' % (epoch))
+        shutil.copyfile(model_path, model_save_path)
 
     shutil.rmtree(os.path.join(opt["save_path"], 'checkpoint_tmp'))
 
