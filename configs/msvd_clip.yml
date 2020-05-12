@@ -1,0 +1,5 @@
+_BASE_: msvd_base.yml
+# base
+
+feats_dir: feats/MSVD/uniform_clips
+sample_len: 10

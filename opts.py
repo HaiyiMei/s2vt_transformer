@@ -67,6 +67,10 @@ def add_model_options(parser):
         action='store_true',
         help='whether to use resnet box')
     parser.add_argument(
+        '--incep_res_box',
+        action='store_true',
+        help='whether to use resnet box')
+    parser.add_argument(
         '--rpn',
         action='store_true',
         help='whether to use rpn box')

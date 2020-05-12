@@ -15,6 +15,35 @@ import torchvision.transforms as transforms
 import torch.nn.functional as F
 import subprocess
 
+
+def compute_iou(rec1, rec2):
+    """
+    computing IoU
+    :param rec1: (x0, y0, x1, y1), which reflects
+            (bottom, left, top, right)
+    :param rec2: (x0, y0, x1, y1)
+    :return: scala value of IoU
+    """
+    # computing area of each rectangles
+    S_rec1 = (rec1[2] - rec1[0]) * (rec1[3] - rec1[1])
+    S_rec2 = (rec2[2] - rec2[0]) * (rec2[3] - rec2[1])
+
+    # computing the sum_area
+    sum_area = S_rec1 + S_rec2
+
+    # find the each edge of intersect rectangle
+    left_line = max(rec1[0], rec2[0])
+    right_line = min(rec1[2], rec2[2])
+    bottom_line = max(rec1[1], rec2[1])
+    top_line = min(rec1[3], rec2[3])
+
+    # judge if there is an intersect
+    if left_line >= right_line or bottom_line >= top_line:
+        return 0.
+    else:
+        intersect = (right_line - left_line) * (top_line - bottom_line)
+        return intersect / (sum_area - intersect)
+
 def show(img, dets, idx):
     """Visual debugging of detections."""
     image_tmp = np.array(img)
@@ -28,9 +57,13 @@ def show(img, dets, idx):
 
 def concat_pic(cls_det):
     image = []
+    im_list_2d = []
+    rows = 4
     for idx in range(len(sample_frame)):
         image.append(show(imgs[idx], cls_det[idx], idx))
-    im_list_2d = [image[:len(image)//2], image[len(image)//2:]]
+    for row in range(rows):
+        im_list_2d.append(image[len(image) * row // rows: len(image) * (row+1) //rows])
+    # im_list_2d = [image[:len(image)//2], image[len(image)//2:]]
     return cv2.vconcat([cv2.hconcat(im_list_h) for im_list_h in im_list_2d])
 
 class GroupResize(object):
@@ -47,66 +80,88 @@ class GroupCenterCrop(object):
     def __call__(self, img_group):
         return [self.worker(img) for img in img_group]
 
+def process_align():
+    cls_det_ = []
+    cls_det_.append(cls_det[0][box].unsqueeze(0))
+
+    sim = F.normalize(feat, p=2, dim=-1)
+    sim = torch.matmul(sim, sim.transpose(0, 1))  # N, N
+    sim = sim[:10] # 10, N
+
+    box_n = cls_det[0] # 10, 5
+    iou = torch.zeros_like(sim) # 10, N
+
+    for i in range(1, 32):
+        for j in range(10):
+            for k in range(10):
+                iou[j, i*10+k] = compute_iou(box_n[j], cls_det[i, k])
+
+    sim += iou
+
+    for i in range(1, 32):
+        feat_single = feat[i*10 : (i+1)*10]  # box, d
+        sim_single = sim[:, i*10 : (i+1)*10]  # box, box
+        cls_single = cls_det[i]
+
+        sim_ = sim_single[box]  # box
+        _, idx = sim_.max(0)
+        cls_det_.append(cls_single[idx].unsqueeze(0))
+    cls_det_ = torch.stack(cls_det_)
+
+    return cls_det_
+    
+
 transform = transforms.Compose([
                 GroupResize(256),
                 GroupCenterCrop(256),
                 ])
 
 dataset = 'MSRVTT'
-idx_v = 11
-threshold = 0.5
+dataset = 'MSVD'
 
-frames_path = '../feats/{}/frames/'.format(dataset)
-bbox_path = '../feats/{}/bbox_crop_256_2020'.format(dataset)
-bbox_path = '../feats/{}/bbox_objectness'.format(dataset)
+frames_path = './feats/{}/frames/'.format(dataset)
+bbox_path = './feats/{}/uniform_clips/bbox_conf_0.1_nms_0.5'.format(dataset)
+# feature_path = './feats/{}/uniform_batch_0.1/resnet_box'.format(dataset)
 
 
 videos = os.listdir(bbox_path)
 videos.sort()
 
-video = videos[idx_v]
-video = video[:-4]
-# video = 'K-KVz3eqbnA_1_10'
-video = 'ZN2_czSBSD0_240_250'
-video = 'DIebwNHGjm8_27_38'
-video = 'ACOmKiJDkA4_130_144'
-video = 'video13'
-print(video)
+video = 'video7184'
+video = 'QMJY29QMewQ_42_52'
+video = '-4wsuPCjDBc_5_15'
+box = 0
+
 
 cls_dets = torch.load(bbox_path+'/'+video+'.pth')
-# cls_dets = torch.load('/home/mhy/Documents/feats/MSVD/bbox_det/{}.pth'.format(video))
+# feat = torch.load(feature_path+'/'+video+'.pth').cpu()  # N, d
 
 imgs = glob.glob(frames_path + video +'/*.jpg')
 imgs.sort()
 
-sample_frame = np.linspace(0, len(imgs)-1, 32, dtype=np.int)
-sample_frame = sample_frame[16:]
+# sample_frame = np.linspace(0, len(imgs)-1, 32, dtype=np.int)
+sample_frame = np.linspace(0, len(imgs)-32, 10, dtype=np.int)
+# sample_frame = sample_frame[:10]
 feat_len = len(sample_frame)
 imgs = [imgs[idx] for idx in sample_frame]
 
-# subprocess.call('mkdir /home/mhy/Documents/detectron2/pic/{}'.format(video), shell=True)
-# for img in imgs:
-#     command = 'cp {} /home/mhy/Documents/detectron2/pic/{}'.format(img, video)
-#     subprocess.call(command, shell=True)
 
 imgs = [Image.open(img).convert('RGB') for img in imgs]
 imgs = transform(imgs)
 
 cls_det = cls_dets[sample_frame]
-print(cls_det[0][:10])
-print(cls_det.shape)
-
 for i in range(cls_det.shape[0]):
-    cls_det[i][cls_det[i][:, 0]<=threshold]=0
-    cls_det[i][(cls_det[i][:, 3]-cls_det[i][:,1]) * (cls_det[i][:,4]-cls_det[i][:,2])<=300]=0
+    cls_single = cls_det[i]
+    cls_single[(cls_single[:,3]-cls_single[:,1]) * (cls_single[:,4]-cls_single[:,2])<=300] = 0
+    score = cls_single[:, -1]
+    _, order = torch.sort(score, 0, True)
+    cls_det[i] = cls_single[order]
 
-print(cls_det.shape)
-print(cls_det[0][:10])
+cls_det = cls_det[:, :10]  # 32, 10, 5
 
-before = concat_pic(cls_det)
-after = concat_pic(cls_det[:, :10])
-print(bbox_path)
-before_save_path = 'pic_demo/' + video + '_before.jpg'#+bbox_path.split('2020')[1]+'d.jpg'
-after_save_path = 'pic_demo/' + video + '_after.jpg'#+bbox_path.split('2020')[1]+'.jpg'
-cv2.imwrite(before_save_path, before)
-cv2.imwrite(after_save_path, after)
+# cls_det = process_align()
+
+pic = concat_pic(cls_det)
+save_path = 'pic/' + video +'.jpg'
+cv2.imwrite(save_path, pic)
+print('save pic to', save_path)

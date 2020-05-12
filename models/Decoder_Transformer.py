@@ -41,18 +41,19 @@ class Decoder_Transformer(nn.Module):
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
     
-    def decoder_step(self, encoder_feats, input_caption, tgt_mask=None):
+    def decoder_step(self, encoder_feats, input_caption, mask, tgt_mask=None):
         input_caption = self.word2vec(input_caption) # encode the words. caption_step, batch_size, hidden_dim
         input_positional = self.pos_encoder(input_caption)
 
         output = self.decoder(input_positional,  
                               encoder_feats,
+                              memory_key_padding_mask=mask,
                               tgt_mask=tgt_mask)
         logits = self.vec2word(self.dropout(output))
         log_softmax_output = F.log_softmax(logits, dim=-1)  # caption_step, batch_size, word_num 
         return log_softmax_output
     
-    def forward(self, encoder_out, input_caption=None, mode='train'):
+    def forward(self, encoder_out, mask, input_caption=None, mode='train'):
         '''
         encoder_out: T x batch_size, hidden_dim
         input_caption: batch_size x caption_step 
@@ -65,7 +66,7 @@ class Decoder_Transformer(nn.Module):
         if mode == 'train':
             input_caption = input_caption.transpose(0, 1)
             tgt_mask = self.tgt_mask.to(encoder_out.device)
-            log_softmax_output = self.decoder_step(encoder_out, input_caption, tgt_mask)
+            log_softmax_output = self.decoder_step(encoder_out, input_caption, mask, tgt_mask)
             seq_probs = log_softmax_output[:-1].transpose(0, 1)  # back in batch first
 
         elif mode=='beam':
@@ -86,7 +87,7 @@ class Decoder_Transformer(nn.Module):
             # stored_emitted_symbols = list()
 
             for step in range(self.caption_maxlen-1):
-                log_softmax_output = self.decoder_step(encoder_out, input_caption)[-1]  # batch_size * k, word_num 
+                log_softmax_output = self.decoder_step(encoder_out, input_caption, mask)[-1]  # batch_size * k, word_num 
 
                 sequence_scores = _inflate(sequence_scores, self.word_num, 1)
                 sequence_scores += log_softmax_output
@@ -126,7 +127,7 @@ class Decoder_Transformer(nn.Module):
         else:
             input_caption = torch.ones(1, batch_size).long().cuda()  # 1, batch_size
             for step in range(self.caption_maxlen-1):
-                log_softmax_output = self.decoder_step(encoder_out, input_caption)[-1]
+                log_softmax_output = self.decoder_step(encoder_out, input_caption, mask)[-1]
                 seq_probs.append(log_softmax_output.unsqueeze(1))  # probability (btach_size, 1, word_num)
                 if mode == 'sample':
                      preds = torch.multinomial(log_softmax_output.exp(), 1)

@@ -23,7 +23,7 @@ class S2VT(nn.Module):
         input_caption: batch_size x caption_step 
         '''
 
-        encoder_out = self.encoder(frame_feat, region_feat)
-        seq_probs, seq_preds = self.decoder(encoder_out, input_caption, mode)
+        encoder_out, mask = self.encoder(frame_feat, region_feat)
+        seq_probs, seq_preds = self.decoder(encoder_out, mask, input_caption, mode)
 
         return seq_probs, seq_preds

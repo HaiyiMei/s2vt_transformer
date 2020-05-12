@@ -79,6 +79,7 @@ class Encoder(nn.Module):
 
     def fc_mask(self, fc, input, mask=None):
         input = fc(self.dropout(input))  # batch_size, N, d
+        # input = fc(input)  # batch_size, N, d
         if mask is not None:
             input.masked_fill_(mask.unsqueeze(-1).expand(input.shape), 0)
         return input
@@ -105,15 +106,24 @@ class Encoder(nn.Module):
         frame_feat: batch_size x T x image_dim
         return frame_feat: T x batch_size, hidden_dim
         '''
-        frame_feat = self.img_embed(self.dropout(frame_feat))
-        if self.channel:
-            frame_weight = torch.relu(self.fc_frame(frame_feat))
-            frame_weight = torch.sigmoid(self.fc_frame2(frame_weight))
-            frame_feat = torch.mul(frame_feat, frame_weight)
-            # torch.save(frame_weight, 'generated_weight/frame/tmp.pth')
+        # frame_feat = self.img_embed(self.dropout(frame_feat))
+        # if self.channel:
+        #     frame_weight = torch.relu(self.fc_frame(frame_feat))
+        #     frame_weight = torch.sigmoid(self.fc_frame2(frame_weight))
+        #     frame_feat = torch.mul(frame_feat, frame_weight)
 
+        mask = frame_feat.sum(-1).eq(0)  # batch_size x T
+        if not mask.any():
+            mask = None
+        frame_feat = self.fc_mask(self.img_embed, frame_feat, mask=mask)
+        if self.channel:
+            frame_weight = torch.relu(self.fc_mask(self.fc_frame, frame_feat, mask))
+            frame_weight = torch.sigmoid(self.fc_mask(self.fc_frame2, frame_weight, mask))
+            frame_feat = torch.mul(frame_feat, frame_weight)
+
+        # torch.save(frame_weight, 'generated_weight/frame/tmp.pth')
         frame_feat = frame_feat.transpose(0, 1)  # T, batch_size, d
-        return frame_feat
+        return frame_feat, mask
 
     def process_region(self, region_feat):
         '''
@@ -121,6 +131,8 @@ class Encoder(nn.Module):
         return region_feat: N x batch_size, hidden_dim
         '''
         mask = region_feat.sum(-1).eq(0)  # batch_size x N
+        if not mask.any():
+            mask = None
         region_feat = self.fc_mask(self.box_embed, region_feat, mask=mask)
         if self.channel:
             region_weight = torch.relu(self.fc_mask(self.fc_reigion, region_feat, mask))
@@ -140,15 +152,16 @@ class Encoder(nn.Module):
         if 'None' == self.fusion:
             if self.only_box:
                 # frame_feat is region_feat in this situation
-                region_feat, mask = self.process_region(frame_feat)
-                encoder_out = self.align_region(region_feat, mask)
+                region_feat, region_mask = self.process_region(frame_feat)
+                encoder_out = self.align_region(region_feat, region_mask)
+                frame_mask = encoder_out.sum(-1).eq(0)  # batch_size x N
             else:
-                encoder_out = self.process_frame(frame_feat)
+                encoder_out, frame_mask  = self.process_frame(frame_feat)
         else:
-            frame_feat = self.process_frame(frame_feat)
-            region_feat, mask = self.process_region(region_feat)
+            frame_feat, frame_mask = self.process_frame(frame_feat)
+            region_feat, region_mask = self.process_region(region_feat)
 
-            region_feat = self.align_region(region_feat, mask, frame_feat)
+            region_feat = self.align_region(region_feat, region_mask, frame_feat)
             if 'add' in self.fusion:
                 encoder_out = frame_feat + region_feat
             if 'concat' in self.fusion:
@@ -156,7 +169,7 @@ class Encoder(nn.Module):
 
         # transformer encoder
         if self.trans_encoder:
-            encoder_out = self.trans_encoder(encoder_out)
+            encoder_out = self.trans_encoder(encoder_out, src_key_padding_mask=frame_mask)
 
-        return encoder_out
+        return encoder_out, frame_mask
 
