@@ -62,11 +62,13 @@ class Encoder(nn.Module):
 
         #### channel attention
         if self.channel:
+            vector_dim = 1 if opt["scalar"] else self.hidden_dim
+
             self.fc_reigion = nn.Linear(self.hidden_dim, self.hidden_dim)
-            self.fc_reigion2 = nn.Linear(self.hidden_dim, self.hidden_dim)
+            self.fc_reigion2 = nn.Linear(self.hidden_dim, vector_dim)
 
             self.fc_frame = nn.Linear(self.hidden_dim, self.hidden_dim)
-            self.fc_frame2 = nn.Linear(self.hidden_dim, self.hidden_dim)
+            self.fc_frame2 = nn.Linear(self.hidden_dim, vector_dim)
 
         if 'att' in self.fusion:
             self.attention = Attention(self.hidden_dim, self.hidden_dim)
@@ -106,20 +108,21 @@ class Encoder(nn.Module):
         frame_feat: batch_size x T x image_dim
         return frame_feat: T x batch_size, hidden_dim
         '''
-        # frame_feat = self.img_embed(self.dropout(frame_feat))
-        # if self.channel:
-        #     frame_weight = torch.relu(self.fc_frame(frame_feat))
-        #     frame_weight = torch.sigmoid(self.fc_frame2(frame_weight))
-        #     frame_feat = torch.mul(frame_feat, frame_weight)
-
-        mask = frame_feat.sum(-1).eq(0)  # batch_size x T
-        if not mask.any():
-            mask = None
-        frame_feat = self.fc_mask(self.img_embed, frame_feat, mask=mask)
+        frame_feat = self.img_embed(self.dropout(frame_feat))
         if self.channel:
-            frame_weight = torch.relu(self.fc_mask(self.fc_frame, frame_feat, mask))
-            frame_weight = torch.sigmoid(self.fc_mask(self.fc_frame2, frame_weight, mask))
+            frame_weight = torch.relu(self.fc_frame(frame_feat))
+            frame_weight = torch.sigmoid(self.fc_frame2(frame_weight))
             frame_feat = torch.mul(frame_feat, frame_weight)
+        mask = None
+
+        # mask = frame_feat.sum(-1).eq(0)  # batch_size x T
+        # if not mask.any():
+        #     mask = None
+        # frame_feat = self.fc_mask(self.img_embed, frame_feat, mask=mask)
+        # if self.channel:
+        #     frame_weight = torch.relu(self.fc_mask(self.fc_frame, frame_feat, mask))
+        #     frame_weight = torch.sigmoid(self.fc_mask(self.fc_frame2, frame_weight, mask))
+        #     frame_feat = torch.mul(frame_feat, frame_weight)
 
         # torch.save(frame_weight, 'generated_weight/frame/tmp.pth')
         frame_feat = frame_feat.transpose(0, 1)  # T, batch_size, d
@@ -131,8 +134,6 @@ class Encoder(nn.Module):
         return region_feat: N x batch_size, hidden_dim
         '''
         mask = region_feat.sum(-1).eq(0)  # batch_size x N
-        if not mask.any():
-            mask = None
         region_feat = self.fc_mask(self.box_embed, region_feat, mask=mask)
         if self.channel:
             region_weight = torch.relu(self.fc_mask(self.fc_reigion, region_feat, mask))

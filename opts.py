@@ -50,6 +50,10 @@ def add_model_options(parser):
         action='store_true',
         help='whether to use channel-wise attention')
     parser.add_argument(
+        '--scalar',
+        action='store_true',
+        help='whether to use scalar attention')
+    parser.add_argument(
         '--fusion',
         type=str,
         help='which guide [channel, concat/add] mode to use')
@@ -152,6 +156,8 @@ def process_checkpoint(args):
         args.save_path = args.save_path + '_' + str(args.fusion)
     if args.channel:
         t = t + '_channel'
+    if args.scalar:
+        t = t + '_scalar'
     
     args.save_path = os.path.join(args.save_path, t)
 

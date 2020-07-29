@@ -48,8 +48,8 @@ def get_parser():
     parser.add_argument(
         "--mode",
         type=str,
-        default='frames',
-        help="frames/clips",
+        default='frame',
+        help="frame/clip",
     )
     parser.add_argument(
         "--dataset",
@@ -61,6 +61,12 @@ def get_parser():
         "--confidence-threshold",
         type=float,
         default=0.1,
+        help="Minimum score for instance predictions to be shown",
+    )
+    parser.add_argument(
+        "--sample_len",
+        type=int,
+        default=32,
         help="Minimum score for instance predictions to be shown",
     )
     parser.add_argument(
@@ -122,10 +128,10 @@ if __name__ == "__main__":
         cls_dets = torch.zeros(video_len, 50, 5)
         cls_dets_keep = torch.zeros(video_len, 50, 5)
 
-        if args.mode=='frames':
-            frame_indices = np.linspace(0, video_len-1, 32, dtype=np.int)
-        elif args.mode=='clips':
-            frame_indices = np.linspace(0, video_len-32, 10, dtype=np.int)
+        if args.mode=='frame':
+            frame_indices = np.linspace(0, video_len-1, args.sample_len, dtype=np.int)
+        elif args.mode=='clip':
+            frame_indices = np.linspace(0, video_len-32, args.sample_len, dtype=np.int)
         elif args.mode=='all':
             frame_indices = range(video_len)
 

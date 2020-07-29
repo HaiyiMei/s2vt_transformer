@@ -1,3 +1,5 @@
+import os
+import torch
 import torch.nn as nn 
 from models.Encoder import Encoder
 from models.Decoder_Transformer import Decoder_Transformer
@@ -12,6 +14,12 @@ class S2VT(nn.Module):
             self.decoder = Decoder_Transformer(opt)
         elif opt["decoder"] == 'lstm':
             self.decoder = Decoder_LSTM(opt)
+
+        # decoder_state_dict = 'data/{}_decoder.pth'.format(opt["dataset"])
+        # if os.path.exists(decoder_state_dict):
+        #     state_dict = torch.load(decoder_state_dict)
+        #     self.decoder.load_state_dict(state_dict)
+
 
 
     def forward(self, frame_feat, region_feat=None, input_caption=None, mode='train'):

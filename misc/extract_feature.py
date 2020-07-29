@@ -172,6 +172,9 @@ def get_net():
     elif model=='tsn':
         net, transform = build_tsn()
         tmp = torch.zeros(sample_len, clip_len, 3, crop_size, crop_size).cuda()
+
+    if mode=='frame':
+        tmp = torch.zeros(sample_len, 3, crop_size, crop_size).cuda()
     return net, transform, tmp
 
 def get_imgs():
@@ -244,9 +247,6 @@ if __name__ == '__main__':
 
     roi = ROIAlign((7, 7), feature_size/crop_size, 0, True)
     channel = 1536 if model=='incep_res' else 2048
-
-    # define preprocess
-
 
     videos_list = os.listdir(frames_path)
     videos_list.sort()

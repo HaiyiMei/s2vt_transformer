@@ -70,7 +70,7 @@ class Decoder_LSTM(nn.Module):
         state = self.init_state(encoder_out)
         return output, state
 
-    def forward(self, encoder_out, input_caption=None, mode='train'):
+    def forward(self, encoder_out, mask, input_caption=None, mode='train'):
         '''
         encoder_out: T x batch_size, hidden_dim
         input_caption: batch_size x caption_step 

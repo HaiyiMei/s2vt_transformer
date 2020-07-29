@@ -42,6 +42,8 @@ class Decoder_Transformer(nn.Module):
         return mask
     
     def decoder_step(self, encoder_feats, input_caption, mask, tgt_mask=None):
+        if encoder_feats.dim() != 3:
+            encoder_feats = self.word2vec(encoder_feats.transpose(0, 1)) # encode the words. caption_step, batch_size, hidden_dim
         input_caption = self.word2vec(input_caption) # encode the words. caption_step, batch_size, hidden_dim
         input_positional = self.pos_encoder(input_caption)
 

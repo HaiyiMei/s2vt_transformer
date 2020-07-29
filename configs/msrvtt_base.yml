@@ -1,8 +1,9 @@
 # base
+# feats_dir: feats/MSRVTT/uniform_frame
 feats_dir: feats/MSRVTT/uniform_batch_0.1
 model: tsn
 decoder: transformer
-transformer_encoder: True
+# transformer_encoder: True
 res_box: True
 
 warmup: 10

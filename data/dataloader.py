@@ -66,25 +66,40 @@ class VideoDataset(Dataset):
         label = np.zeros(self.max_len)
         mask = np.zeros(self.max_len)
         captions = self.captions[self.list_all[ix]]['final_captions']
-        gts = np.zeros((len(captions), self.max_len))
-        for i, cap in enumerate(captions):
-            if len(cap) > self.max_len:
-                cap = cap[:self.max_len]
-                cap[-1] = '<eos>'
-            for j, w in enumerate(cap):
-                gts[i, j] = self.word_to_ix[w]
 
-        # random select a caption for this video
+###########################################################################
         cap_ix = random.randint(0, len(captions) - 1)
-        label = gts[cap_ix]
+        cap = captions[cap_ix]
+        if len(cap) > self.max_len:
+            cap = cap[:self.max_len]
+            cap[-1] = '<eos>'
+        for j, w in enumerate(cap):
+            label[j] = self.word_to_ix[w]
         non_zero = (label == 0).nonzero()
         mask[:int(non_zero[0][0]) + 1] = 1
+###########################################################################
+
+        # gts = np.zeros((len(captions), self.max_len))
+        # for i, cap in enumerate(captions):
+        #     if len(cap) > self.max_len:
+        #         cap = cap[:self.max_len]
+        #         cap[-1] = '<eos>'
+        #     for j, w in enumerate(cap):
+        #         gts[i, j] = self.word_to_ix[w]
+
+        # # random select a caption for this video
+        # cap_ix = random.randint(0, len(captions) - 1)
+        # label = gts[cap_ix]
+        # non_zero = (label == 0).nonzero()
+        # mask[:int(non_zero[0][0]) + 1] = 1
 
         if self.dataset == 'MSVD':
             gts_ix = random.sample(range(len(captions)), 5)
-            gts_ = np.zeros((self.captions_maxnum, self.max_len))
-            gts_[:len(gts)] = gts
-            gts = gts_
+            # gts_ = np.zeros((self.captions_maxnum, self.max_len))
+            # gts_[:len(gts)] = gts
+            # gts = gts_
+
+###########################################################################
 
         data = {}
         data['img_feats'] = fc_feat[0].type(torch.FloatTensor)
@@ -92,7 +107,7 @@ class VideoDataset(Dataset):
             data['box_feats'] = fc_feat[1].type(torch.FloatTensor)
         data['labels'] = torch.from_numpy(label).type(torch.LongTensor)
         data['masks'] = torch.from_numpy(mask).type(torch.FloatTensor)
-        data['gts'] = torch.from_numpy(gts).long()
+        # data['gts'] = torch.from_numpy(gts).long()
         data['video_ids'] = self.list_all[ix]
         return data
 

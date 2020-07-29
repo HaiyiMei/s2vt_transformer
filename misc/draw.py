@@ -117,10 +117,10 @@ transform = transforms.Compose([
                 ])
 
 dataset = 'MSRVTT'
-dataset = 'MSVD'
+# dataset = 'MSVD'
 
 frames_path = './feats/{}/frames/'.format(dataset)
-bbox_path = './feats/{}/uniform_clips/bbox_conf_0.1_nms_0.5'.format(dataset)
+bbox_path = './feats/{}/bbox_conf_0.1_nms_0.5'.format(dataset)
 # feature_path = './feats/{}/uniform_batch_0.1/resnet_box'.format(dataset)
 
 
@@ -128,8 +128,8 @@ videos = os.listdir(bbox_path)
 videos.sort()
 
 video = 'video7184'
-video = 'QMJY29QMewQ_42_52'
-video = '-4wsuPCjDBc_5_15'
+# video = 'QMJY29QMewQ_42_52'
+# video = '-4wsuPCjDBc_5_15'
 box = 0
 
 
@@ -139,8 +139,8 @@ cls_dets = torch.load(bbox_path+'/'+video+'.pth')
 imgs = glob.glob(frames_path + video +'/*.jpg')
 imgs.sort()
 
-# sample_frame = np.linspace(0, len(imgs)-1, 32, dtype=np.int)
-sample_frame = np.linspace(0, len(imgs)-32, 10, dtype=np.int)
+sample_frame = np.linspace(0, len(imgs)-1, 32, dtype=np.int)
+# sample_frame = np.linspace(0, len(imgs)-32, 10, dtype=np.int)
 # sample_frame = sample_frame[:10]
 feat_len = len(sample_frame)
 imgs = [imgs[idx] for idx in sample_frame]
