@@ -16,7 +16,6 @@ misc/pic_demo/
 
 # Jupyter Notebook
 .ipynb_checkpoints
-*.ipynb
 
 __pypackages__/
 
