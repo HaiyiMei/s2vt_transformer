@@ -1,0 +1,6 @@
+# base
+_BASE_: msvd_base.yml
+
+wcm: channel
+wcm_len: 1
+fusion: avg_add

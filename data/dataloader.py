@@ -26,13 +26,7 @@ class VideoDataset(Dataset):
         self.captions_maxnum = 81 if self.dataset == 'MSVD' else 20
 
         self.img = os.path.join(self.feats_dir, '{}_img'.format(opt["model"]))
-        self.box = os.path.join(self.feats_dir, '{}_box'.format(opt["model"]))
-        if opt["res_box"]:
-            self.box = os.path.join(self.feats_dir, 'resnet_box')
-        if opt["rpn"]:
-            self.box = os.path.join(self.feats_dir, 'rpn')
-        if opt["incep_res_box"]:
-            self.box = os.path.join(self.feats_dir, 'incep_res_box')
+        self.box = os.path.join(self.feats_dir, '{}_box'.format(opt["model_box"]))
 
         # load the json file which contains information about the dataset
         self.captions = json.load(open('data/caption_{}.json'.format(self.dataset)))

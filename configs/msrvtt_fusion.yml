@@ -1,0 +1,5 @@
+_BASE_: msrvtt_base.yml
+
+wcm: channel
+wcm_len: 1
+fusion: avg_add

@@ -21,7 +21,10 @@ class Decoder_Transformer(nn.Module):
         self.k = 5  # beam_size
         self.word_num = opt["vocab_size"]
         self.hidden_dim = opt["dim_hidden"]
-        self.hidden_dim = self.hidden_dim*2 if 'concat' in str(opt["fusion"]) else self.hidden_dim
+        if 'concat' in str(opt["fusion"]):
+            self.hidden_dim = self.hidden_dim*2
+        if 'cbp' in str(opt["fusion"]):
+            self.hidden_dim = opt["cbp_dim"]
         self.caption_maxlen = opt["max_len"]
 
         self.word2vec = nn.Embedding(self.word_num, 
@@ -98,6 +101,7 @@ class Decoder_Transformer(nn.Module):
                 output_word = (candidates % self.word_num).view(batch_size * self.k, 1)  # batch_size * k, 1
                 sequence_scores = scores.view(batch_size * self.k, 1)
                 predecessors = (candidates / self.word_num + self.pos_index.expand_as(candidates)).view(batch_size * self.k, 1)
+                predecessors = predecessors.long()
 
                 log_softmax_output = log_softmax_output.index_select(0, predecessors.squeeze())
 

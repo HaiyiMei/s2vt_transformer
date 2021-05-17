@@ -6,7 +6,7 @@ import subprocess
 
 def video_process(dir_path, dst_path, video_names):
     length = len(video_names)
-    for idx, video_name in tqdm.tqdm(enumerate(video_names)):
+    for idx, video_name in enumerate(tqdm.tqdm(video_names)):
         # print(idx+1, '/', length, video_name)
         dst_video_path = os.path.join(dst_path, video_name)
         if not os.path.exists(dst_video_path):

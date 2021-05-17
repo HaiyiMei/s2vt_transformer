@@ -79,8 +79,8 @@ def main(opt):
     trainset = VideoDataset(opt, 'train')
     validset = VideoDataset(opt, 'val')
 
-    trainloader = DataLoader(trainset, batch_size=opt["batch_size"], shuffle=True)
-    validloader = DataLoader(validset, batch_size=opt["batch_size"], shuffle=False)
+    trainloader = DataLoader(trainset, batch_size=opt["batch_size"], shuffle=True, num_workers=opt["workers"])
+    validloader = DataLoader(validset, batch_size=opt["batch_size"], shuffle=False, num_workers=opt["workers"])
 
     gts = utils.convert_data_to_coco_scorer_format(
         json.load(open('data/annotations_{}.json'.format(opt["dataset"]))))
@@ -93,7 +93,7 @@ def main(opt):
     model = S2VT(opt)
     model = model.cuda()
 
-    print(model)
+    # print(model)
 
     optimizer = optim.Adam(
         model.parameters(),
@@ -114,8 +114,7 @@ def main(opt):
     print("dataset: %s"%opt["dataset"], 
           "load feature from: %s"%trainset.feats_dir,
           "saving checkpoint to: %s"%opt["save_path"], 
-          "start training", 
-          "---------------------------", sep="\n")
+          "start training", "---------------------------", sep="\n")
 
     mode = 'beam' if opt["beam"] else 'inference'
     for epoch in range(opt["epochs"]):
@@ -185,7 +184,8 @@ def main(opt):
     for epoch in tqdm.tqdm(top, desc='epochs', leave=True):
         model_path = os.path.join(opt["save_path"], 'checkpoint_tmp', 'model_%d.pth' % (epoch))
         model.load_state_dict(torch.load(model_path))
-        test_score, test_sents = test(model, testloader, vocab, test_scorer, mode=mode)
+        with torch.no_grad():
+            test_score, test_sents = test(model, testloader, vocab, test_scorer, mode=mode)
 
         test_score.update({'epoch': epoch})
         metrics_test = metrics_test.append(test_score, ignore_index=True)
@@ -206,6 +206,14 @@ def main(opt):
 if __name__ == '__main__':
     opt = opts.parse_opt()
     opt = vars(opt)
+
+    if os.path.exists(opt["save_path"]):
+        end = input(f'{opt["save_path"]} exsits. delete it? ([y]/n)')
+        if end == '' or end == 'y':
+            shutil.rmtree(opt["save_path"])
+        else:
+            exit()
+
     print(json.dumps(opt, indent=1))
     top_metics = 10
     steady_epoch = opt["self_crit_after"] 
